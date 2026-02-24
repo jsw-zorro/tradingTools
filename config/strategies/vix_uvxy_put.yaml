@@ -1,0 +1,26 @@
+default_params:
+  spike_absolute: 30
+  spike_pct_change: 20
+  combine_mode: "or"
+  cooldown_days: 5
+  strike_mode: "otm_5"
+  dte_target: 45
+  entry_delay_days: 1
+  position_size_pct: 5.0
+  max_open_positions: 3
+  profit_target_pct: 100
+  stop_loss_pct: 50
+  max_hold_days: 30
+  vix_floor_exit: 18
+  iv_scale_factor: 1.2
+
+sweep:
+  spike_absolute: [25, 28, 30, 33, 35]
+  spike_pct_change: [10, 15, 20, 25, 30]
+  combine_mode: ["or", "and"]
+  strike_mode: ["atm", "otm_5", "otm_10"]
+  dte_target: [30, 45, 60, 90]
+  entry_delay_days: [0, 1, 2]
+  profit_target_pct: [50, 100, 150, 200]
+  stop_loss_pct: [50, 75]
+  max_hold_days: [15, 20, 30, 45]

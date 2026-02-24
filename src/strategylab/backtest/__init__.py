@@ -1,0 +1,1 @@
+"""Strategy-agnostic backtesting engine."""

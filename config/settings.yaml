@@ -1,0 +1,28 @@
+quantconnect:
+  user_id_env_var: QC_USER_ID
+  api_token_env_var: QC_API_TOKEN
+  organization_id_env_var: QC_ORGANIZATION_ID
+  # Or set organization_id directly (not secret):
+  # organization_id: "your-org-id"
+  data:
+    resolution: daily                  # daily, hour, or minute
+    underlyings: [UVXY]                # which options chains to download
+    default_lookback_years: 5
+
+email:
+  smtp_server: smtp.gmail.com
+  smtp_port: 587
+  sender_env_var: ALERT_EMAIL_SENDER
+  password_env_var: ALERT_EMAIL_PASSWORD
+  recipients: [your-email@example.com]
+
+monitor:
+  enabled_strategies: [vix_uvxy_put]
+  market_open: "09:30"
+  market_close: "16:00"
+  timezone: US/Eastern
+
+backtest:
+  initial_capital: 100000
+  commission_per_contract: 0.65
+  slippage_pct: 1.0

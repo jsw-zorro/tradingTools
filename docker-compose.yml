@@ -1,0 +1,27 @@
+services:
+  monitor:
+    build: .
+    command: ["monitor", "--anytime"]
+    env_file: .env
+    volumes:
+      - ./output:/app/output
+      - ./config:/app/config
+    restart: unless-stopped
+
+  backtest:
+    build: .
+    command: ["backtest", "-s", "vix_uvxy_put"]
+    volumes:
+      - ./output:/app/output
+      - ./config:/app/config
+    profiles:
+      - backtest
+
+  sweep:
+    build: .
+    command: ["sweep", "-s", "vix_uvxy_put"]
+    volumes:
+      - ./output:/app/output
+      - ./config:/app/config
+    profiles:
+      - sweep
