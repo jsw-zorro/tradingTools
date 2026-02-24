@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install*)",
+      "Bash(pytest*)",
+      "Bash(python -m pytest*)",
+      "Bash(strategylab *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git remote*)",
+      "Bash(git branch*)",
+      "Bash(ls *)",
+      "Bash(mkdir *)"
+    ]
+  }
+}
