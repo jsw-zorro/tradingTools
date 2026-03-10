@@ -2,8 +2,9 @@
 output/
 *.parquet
 
-# ML artifacts
-models/artifacts/
+# ML artifacts (keep compact model, exclude full model and plots)
+models/artifacts/ag_model/
+models/artifacts/plots/
 
 # Python
 __pycache__/
