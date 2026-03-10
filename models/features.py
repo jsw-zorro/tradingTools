@@ -1,4 +1,4 @@
-"""Feature engineering from 30-day OHLCV windows."""
+"""Feature engineering from 60-day OHLCV windows."""
 
 import logging
 
@@ -18,7 +18,7 @@ def _safe_div(a: float, b: float) -> float:
 
 
 def compute_features_for_sample(sample: dict) -> dict[str, float]:
-    """Extract ~40 features from a single sample's 30-day window.
+    """Extract features from a sample's 60-day window.
 
     All price-level features are expressed as % of current price or as
     z-scores so multi-stock training works.
@@ -43,30 +43,33 @@ def compute_features_for_sample(sample: dict) -> dict[str, float]:
     features: dict[str, float] = {}
 
     # --- Price returns ---
-    for n, label in [(1, "1d"), (5, "5d"), (10, "10d"), (20, "20d")]:
+    for n, label in [(1, "1d"), (5, "5d"), (10, "10d"), (20, "20d"), (50, "50d")]:
         if len(close) > n:
             features[f"return_{label}"] = (close[-1] - close[-1 - n]) / close[-1 - n]
         else:
             features[f"return_{label}"] = 0.0
 
     # --- Distance from SMAs (as % of price) ---
-    for n in [5, 10, 20]:
-        sma = np.mean(close[-n:])
-        features[f"dist_sma_{n}"] = _safe_div(current_price - sma, current_price)
+    for n in [5, 10, 20, 50]:
+        if len(close) >= n:
+            sma = np.mean(close[-n:])
+            features[f"dist_sma_{n}"] = _safe_div(current_price - sma, current_price)
+        else:
+            features[f"dist_sma_{n}"] = 0.0
 
     # --- SMA crossover ---
     sma5 = np.mean(close[-5:])
     sma20 = np.mean(close[-20:])
     features["sma_5_20_cross"] = 1.0 if sma5 > sma20 else 0.0
 
-    # --- Price position in 30-day range ---
-    high_30 = np.max(high)
-    low_30 = np.min(low)
-    rng = high_30 - low_30
-    features["price_in_range"] = _safe_div(current_price - low_30, rng) if rng > 0 else 0.5
+    # --- Price position in full window range ---
+    high_all = np.max(high)
+    low_all = np.min(low)
+    rng = high_all - low_all
+    features["price_in_range"] = _safe_div(current_price - low_all, rng) if rng > 0 else 0.5
 
     # --- Volatility ---
-    for n, label in [(5, "5d"), (10, "10d"), (20, "20d")]:
+    for n, label in [(5, "5d"), (10, "10d"), (20, "20d"), (50, "50d")]:
         if len(returns) >= n:
             features[f"vol_{label}"] = np.std(returns[-n:])
         else:
@@ -157,17 +160,27 @@ def compute_features_for_sample(sample: dict) -> dict[str, float]:
     if spy_data is not None and len(spy_data) >= 5:
         spy_close = spy_data["Close"].values
         features["spy_return_5d"] = (spy_close[-1] - spy_close[-5]) / spy_close[-5]
+        if len(spy_close) >= 20:
+            features["spy_return_20d"] = (spy_close[-1] - spy_close[-20]) / spy_close[-20]
+        else:
+            features["spy_return_20d"] = 0.0
     else:
         features["spy_return_5d"] = 0.0
+        features["spy_return_20d"] = 0.0
 
     vix_data = context.get("VIX")
     if vix_data is not None and len(vix_data) >= 5:
         vix_close = vix_data["Close"].values
         features["vix_level"] = float(vix_close[-1])
         features["vix_change_5d"] = float(vix_close[-1] - vix_close[-5])
+        if len(vix_close) >= 20:
+            features["vix_change_20d"] = float(vix_close[-1] - vix_close[-20])
+        else:
+            features["vix_change_20d"] = 0.0
     else:
         features["vix_level"] = 20.0  # fallback neutral
         features["vix_change_5d"] = 0.0
+        features["vix_change_20d"] = 0.0
 
     # --- Prediction horizon ---
     # days_to_friday tells the model how far out it's predicting (1-5 calendar days)

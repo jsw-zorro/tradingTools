@@ -25,7 +25,7 @@ ALL_TICKERS = TARGET_TICKERS + OOS_TICKERS + CONTEXT_TICKERS
 # --- Data ---
 DATA_START = "2019-01-01"
 DATA_END = "2025-03-01"
-LOOKBACK_DAYS = 30  # Trading days of history per sample
+LOOKBACK_DAYS = 60  # Trading days of history per sample
 CUTOFF_DOWS = [0, 1, 2, 3]  # Mon, Tue, Wed, Thu — generate a sample for each cutoff day
 
 # --- Walk-forward splits (by fraction of sorted samples) ---
@@ -48,4 +48,4 @@ PUT_RISK_LEVELS = [0.05, 0.10, 0.15, 0.20]
 PUT_RISK_LABELS = ["Conservative (5%)", "Moderate (10%)", "Aggressive (15%)", "Very Aggressive (20%)"]
 
 # --- Inference ---
-PREDICTION_LOOKBACK = 30   # trading days to fetch for live prediction
+PREDICTION_LOOKBACK = 60   # trading days to fetch for live prediction
