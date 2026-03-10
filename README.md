@@ -206,6 +206,86 @@ class MyStrategy(BaseStrategy):
     def get_default_params(self): ...
 ```
 
+## Friday Close Range Predictor (`models/`)
+
+Standalone ML pipeline that predicts a $10 price range for where a stock will close on Friday. Used for selling puts: sell at a strike below the predicted lower bound. Uses conformal prediction to produce a calibrated lower bound with <5% violation rate.
+
+### How It Works
+
+1. **Features:** ~33 features from 30-day OHLCV windows — momentum (MACD), volatility (Garman-Klass, ATR), returns, VIX/SPY context, calendar signals, ticker identity
+2. **Model:** AutoGluon-Tabular ensemble (NeuralNet, CatBoost, LightGBM, XGBoost) stacked in 2 levels with 8-fold bagging
+3. **Target:** Friday return (friday_close / current_price - 1), not absolute price — so patterns transfer across stocks
+4. **Calibration:** Split conformal prediction in return-space produces a lower bound. Range = [lower_bound, lower_bound + $10]
+5. **Data cutoff:** Uses Mon/Tue/Wed/Thu data to predict that week's Friday close (4 samples per Friday per stock)
+
+### Results (Run 6, test period ~2024-2025)
+
+| Metric | Value |
+|--------|-------|
+| Point prediction MAE | $5.86 |
+| Point prediction RMSE | $10.04 |
+| Return MAE | ~2.8% |
+| Lower bound violation rate | 2.9% (target: ≤5%) |
+| Training stocks | 15 (GOOGL, TSLA, NVDA, AAPL, BABA, META, AMZN, MSFT, AMD, NFLX, COST, JPM, V, DIS, PYPL) |
+| Out-of-sample (UBER) | $1.51 MAE, 88.6% coverage |
+
+Best per-stock: DIS $2.15, PYPL $1.90, NFLX $1.99. Worst: META $15.03, COST $13.73 (high-priced stocks).
+
+### Inference
+
+```bash
+# Install deps (works on macOS M1)
+pip install "autogluon.tabular[all]" yfinance pandas numpy scikit-learn matplotlib
+
+# Predict this Friday's range
+cd models/
+python predict.py --ticker AAPL
+```
+
+Output:
+```
+============================================================
+  AAPL Friday 2026-03-13 Prediction
+============================================================
+  Predicted range:  $220.15 - $230.15
+  Lower bound:      $220.15
+  Point prediction: $225.80
+  Safe put strike:  $220 or below
+============================================================
+```
+
+### Training
+
+Training requires Docker (AutoGluon has heavy native deps). Uses 48 CPUs, takes ~30 minutes.
+
+```bash
+# Build Docker image (one-time)
+docker build -t friday-pred models/
+
+# Train
+docker run --rm -v $(pwd)/models:/app -u "$(id -u):$(id -g)" friday-pred python train.py
+```
+
+Artifacts saved to `models/artifacts/` (gitignored):
+- `ag_model/` — AutoGluon ensemble (~632 MB)
+- `conformal.json` — calibration residuals + quantile
+- `plots/` — per-stock prediction charts
+
+### Project Structure
+
+```
+models/
+├── train.py          # End-to-end training pipeline
+├── predict.py        # Inference: ticker → $10 range for Friday close
+├── data.py           # yfinance fetch + sample construction
+├── features.py       # ~33 features from 30-day OHLCV windows
+├── conformal.py      # Split conformal prediction (return-space)
+├── evaluate.py       # Coverage, sharpness, MAE metrics + plots
+├── config.py         # Hyperparams, ticker list, constants
+├── Dockerfile        # Training environment (Python 3.11 + AutoGluon)
+└── artifacts/        # Saved model + calibration (gitignored)
+```
+
 ## Docker
 
 ```bash

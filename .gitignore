@@ -2,6 +2,9 @@
 output/
 *.parquet
 
+# ML artifacts
+models/artifacts/
+
 # Python
 __pycache__/
 *.py[cod]
