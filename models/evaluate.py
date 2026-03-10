@@ -1,14 +1,14 @@
 """Evaluation metrics and charts for Friday close range predictor."""
 
 import logging
-from collections import defaultdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from config import ARTIFACTS_DIR, RANGE_WIDTH
+from config import ARTIFACTS_DIR, PUT_RISK_LEVELS, RANGE_WIDTH
+from conformal import compute_vol_scale
 
 logger = logging.getLogger(__name__)
 
@@ -181,3 +181,96 @@ def plot_predictions(
     fig.savefig(path, dpi=150)
     plt.close(fig)
     logger.info(f"Saved summary plot: {path}")
+
+
+def backtest_put_selling(
+    y_true_dollar: np.ndarray,
+    y_pred_return: np.ndarray,
+    current_prices: np.ndarray,
+    samples: list[dict],
+    conformal_data: dict,
+    alphas: list[float] = PUT_RISK_LEVELS,
+) -> dict:
+    """Backtest put-selling at multiple alpha levels on the test set.
+
+    For each test sample and alpha level:
+    - Compute conformal strike (lower bound rounded to nearest $5)
+    - Check if assigned (actual_close < strike)
+    - Report assignment rate, avg/max loss, break-even premium
+
+    No historical option prices needed — reports break-even premium instead.
+
+    Parameters
+    ----------
+    y_true_dollar  : actual Friday close prices
+    y_pred_return  : predicted returns
+    current_prices : prices at cutoff day
+    samples        : sample dicts (for vol_scale computation)
+    conformal_data : loaded conformal.json
+    alphas         : risk levels to evaluate
+
+    Returns dict with per-alpha results.
+    """
+    scaled_residuals = np.array(conformal_data["scaled_residuals"])
+    n = len(y_true_dollar)
+
+    results = {}
+    for alpha in alphas:
+        quantile_val = float(np.quantile(scaled_residuals, alpha))
+
+        assignments = []
+        losses = []
+        strikes_list = []
+
+        for i in range(n):
+            vol_scale = compute_vol_scale(samples[i]["window"])
+            lower_return = y_pred_return[i] + quantile_val * vol_scale
+            lower_price = current_prices[i] * (1 + lower_return)
+
+            # Round down to nearest $5 strike
+            strike = float(int(lower_price / 5) * 5)
+            strikes_list.append(strike)
+
+            actual = y_true_dollar[i]
+            assigned = actual < strike
+            assignments.append(assigned)
+            if assigned:
+                losses.append(strike - actual)
+
+        assignments = np.array(assignments)
+        assign_rate = float(np.mean(assignments))
+        avg_loss = float(np.mean(losses)) if losses else 0.0
+        max_loss = float(np.max(losses)) if losses else 0.0
+        # Break-even premium: expected loss per share across all samples
+        total_loss = sum(losses)
+        breakeven = total_loss / n if n > 0 else 0.0
+
+        results[alpha] = {
+            "assign_rate": assign_rate,
+            "avg_loss_if_assigned": avg_loss,
+            "max_loss": max_loss,
+            "breakeven_premium": breakeven,
+            "n_assigned": int(np.sum(assignments)),
+            "n_samples": n,
+        }
+
+    return results
+
+
+def print_put_selling_backtest(results: dict) -> None:
+    """Pretty-print put-selling backtest results."""
+    print("\n" + "=" * 75)
+    print("PUT-SELLING BACKTEST (Test Set)")
+    print("=" * 75)
+    header = f"{'Alpha':>7} {'Assign%':>9} {'Avg Loss/Assign':>17} {'Max Loss':>10} {'Break-Even Premium':>20}"
+    print(header)
+    print("-" * 75)
+    for alpha, m in sorted(results.items()):
+        print(
+            f"  {alpha:>4.0%} {m['assign_rate']:>8.1%} "
+            f"${m['avg_loss_if_assigned']:>15.2f} "
+            f"${m['max_loss']:>8.2f} "
+            f"${m['breakeven_premium']:>18.2f}/share"
+        )
+    print("-" * 75)
+    print()

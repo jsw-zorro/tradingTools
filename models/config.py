@@ -6,7 +6,11 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).parent
 ARTIFACTS_DIR = PROJECT_DIR / "artifacts"
 AG_MODEL_DIR = ARTIFACTS_DIR / "ag_model"
+AG_MODEL_COMPACT_DIR = ARTIFACTS_DIR / "ag_model_compact"
 CONFORMAL_PATH = ARTIFACTS_DIR / "conformal.json"
+
+# Best individual model (outperforms full ensemble at 1/10th the size)
+PREFERRED_MODEL = "RandomForestMSE_BAG_L1_FULL"
 
 # --- Tickers ---
 TARGET_TICKERS = [
@@ -38,6 +42,10 @@ AG_TIME_LIMIT = 3600  # seconds
 CONFORMAL_COVERAGE = 0.90  # target coverage
 CONFORMAL_ALPHA = 0.03     # one-sided lower quantile — tighter than 0.05 for better violation control
 RANGE_WIDTH = 10.0         # $10 range
+
+# --- Put-selling risk levels ---
+PUT_RISK_LEVELS = [0.05, 0.10, 0.15, 0.20]
+PUT_RISK_LABELS = ["Conservative (5%)", "Moderate (10%)", "Aggressive (15%)", "Very Aggressive (20%)"]
 
 # --- Inference ---
 PREDICTION_LOOKBACK = 30   # trading days to fetch for live prediction

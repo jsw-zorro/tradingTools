@@ -97,6 +97,13 @@ def load_conformal(path: Path = CONFORMAL_PATH) -> dict:
 # Inference
 # ---------------------------------------------------------------------------
 
+def compute_vol_scale(recent_window: pd.DataFrame) -> float:
+    """Compute local volatility scale from recent price window."""
+    close = recent_window["Close"].values
+    rv = np.std(np.diff(np.log(close[-6:]))) if len(close) >= 6 else 0.01
+    return max(rv, 0.001)
+
+
 def predict_lower_bound(
     y_pred_return: float,
     recent_window: pd.DataFrame,
@@ -108,10 +115,68 @@ def predict_lower_bound(
     (quantile < 0, so this subtracts)
     """
     quantile = conformal_data["quantile"]
-    close = recent_window["Close"].values
-    rv = np.std(np.diff(np.log(close[-6:]))) if len(close) >= 6 else 0.01
-    vol_scale = max(rv, 0.001)
+    vol_scale = compute_vol_scale(recent_window)
     return y_pred_return + quantile * vol_scale
+
+
+def predict_multi_level_bounds(
+    y_pred_return: float,
+    current_price: float,
+    recent_window: pd.DataFrame,
+    conformal_data: dict,
+    alphas: list[float],
+) -> list[dict]:
+    """Compute conformal lower bounds at multiple alpha (risk) levels.
+
+    Returns list of dicts with keys: alpha, lower_return, lower_price.
+    """
+    vol_scale = compute_vol_scale(recent_window)
+    scaled_residuals = np.array(conformal_data["scaled_residuals"])
+    results = []
+    for alpha in alphas:
+        quantile_val = float(np.quantile(scaled_residuals, alpha))
+        lower_return = y_pred_return + quantile_val * vol_scale
+        lower_price = current_price * (1 + lower_return)
+        results.append({
+            "alpha": alpha,
+            "lower_return": lower_return,
+            "lower_price": lower_price,
+        })
+    return results
+
+
+def estimate_expected_loss(
+    strike: float,
+    y_pred_return: float,
+    current_price: float,
+    recent_window: pd.DataFrame,
+    conformal_data: dict,
+) -> dict:
+    """Estimate put-selling expected loss using the full residual distribution.
+
+    Uses empirical distribution of scaled residuals to simulate possible
+    Friday closes and compute expected loss if assigned.
+
+    Returns dict with prob_itm, expected_loss_per_share, expected_loss_per_contract.
+    """
+    vol_scale = compute_vol_scale(recent_window)
+    scaled_residuals = np.array(conformal_data["scaled_residuals"])
+
+    # Simulate actual returns from residual distribution
+    actual_returns = y_pred_return + scaled_residuals * vol_scale
+    strike_return = strike / current_price - 1
+
+    # Loss per share when assigned: max(strike - friday_close, 0) / current_price = max(strike_return - actual_return, 0)
+    return_losses = np.maximum(strike_return - actual_returns, 0)
+    prob_itm = float(np.mean(actual_returns < strike_return))
+    expected_loss_per_share = float(current_price * np.mean(return_losses))
+    expected_loss_per_contract = expected_loss_per_share * 100
+
+    return {
+        "prob_itm": prob_itm,
+        "expected_loss_per_share": expected_loss_per_share,
+        "expected_loss_per_contract": expected_loss_per_contract,
+    }
 
 
 def predict_range(
