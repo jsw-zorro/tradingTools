@@ -5,7 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from config import TARGET_TICKERS
+from config import SECTORS, TICKER_SECTORS
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +200,10 @@ def compute_features_for_sample(sample: dict) -> dict[str, float]:
         features["week_of_month"] = min((upcoming_friday.day - 1) // 7 + 1, 5)
         features["month"] = upcoming_friday.month
 
-    # --- Ticker one-hot ---
-    for t in TARGET_TICKERS:
-        features[f"ticker_{t}"] = 1.0 if ticker == t else 0.0
+    # --- Sector one-hot (11 GICS sectors, replaces 100+ ticker one-hot) ---
+    ticker_sector = TICKER_SECTORS.get(ticker, "")
+    for s in SECTORS:
+        features[f"sector_{s}"] = 1.0 if ticker_sector == s else 0.0
 
     return features
 

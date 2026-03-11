@@ -9,22 +9,97 @@ AG_MODEL_DIR = ARTIFACTS_DIR / "ag_model"
 AG_MODEL_COMPACT_DIR = ARTIFACTS_DIR / "ag_model_compact"
 CONFORMAL_PATH = ARTIFACTS_DIR / "conformal.json"
 
-# Best individual model (outperforms full ensemble at 1/10th the size)
-PREFERRED_MODEL = "RandomForestMSE_BAG_L1_FULL"
+# Best individual model for compact deployment
+PREFERRED_MODEL = "LightGBMXT_BAG_L1_FULL"
 
-# --- Tickers ---
-TARGET_TICKERS = [
-    "GOOGL", "TSLA", "NVDA", "AAPL", "BABA", "META",  # original 6
-    "AMZN", "MSFT", "AMD",                              # added in Run 5
-    "NFLX", "COST", "JPM", "V", "DIS", "PYPL",         # added in Run 6
+# --- GICS Sectors ---
+SECTORS = [
+    "Technology", "Consumer_Discretionary", "Communication_Services",
+    "Health_Care", "Financials", "Consumer_Staples", "Industrials",
+    "Energy", "Utilities", "Real_Estate", "Materials",
 ]
-OOS_TICKERS = ["SQ", "UBER"]  # Out-of-sample test only (not trained on)
+
+# --- Tickers (100 training + 5 OOS) ---
+TARGET_TICKERS = [
+    # Information Technology (21)
+    "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AVGO", "AMD", "ADBE",
+    "CRM", "INTC", "CSCO", "ORCL", "TXN", "QCOM", "AMAT", "MU",
+    "LRCX", "KLAC", "NOW", "PANW", "CDNS",
+    # Consumer Discretionary (12)
+    "AMZN", "TSLA", "HD", "MCD", "NKE", "LOW", "TJX", "SBUX",
+    "BKNG", "ROST", "CMG", "BABA",
+    # Communication Services (5)
+    "DIS", "NFLX", "CMCSA", "T", "VZ",
+    # Health Care (11)
+    "UNH", "JNJ", "LLY", "PFE", "ABT", "MRK", "TMO", "AMGN",
+    "ISRG", "GILD", "DHR",
+    # Financials (13)
+    "JPM", "V", "MA", "BAC", "GS", "MS", "BLK", "AXP",
+    "SPGI", "C", "PYPL", "ICE", "SCHW",
+    # Consumer Staples (8)
+    "PG", "KO", "PEP", "COST", "WMT", "PM", "CL", "MDLZ",
+    # Industrials (11)
+    "CAT", "GE", "HON", "UNP", "RTX", "LMT", "BA", "DE",
+    "WM", "FDX", "ETN",
+    # Energy (6)
+    "XOM", "CVX", "COP", "SLB", "EOG", "OXY",
+    # Utilities (4)
+    "NEE", "DUK", "SO", "AEP",
+    # Real Estate (4)
+    "PLD", "AMT", "CCI", "EQIX",
+    # Materials (5)
+    "LIN", "APD", "SHW", "FCX", "NEM",
+]
+OOS_TICKERS = ["UBER", "PLTR", "ABNB", "SPOT", "COIN"]
 CONTEXT_TICKERS = ["SPY", "^VIX"]
 ALL_TICKERS = TARGET_TICKERS + OOS_TICKERS + CONTEXT_TICKERS
 
+# Ticker -> GICS sector mapping (for sector one-hot features)
+_SECTOR_TICKERS = {
+    "Technology": [
+        "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AVGO", "AMD", "ADBE",
+        "CRM", "INTC", "CSCO", "ORCL", "TXN", "QCOM", "AMAT", "MU",
+        "LRCX", "KLAC", "NOW", "PANW", "CDNS",
+        "PLTR",  # OOS
+    ],
+    "Consumer_Discretionary": [
+        "AMZN", "TSLA", "HD", "MCD", "NKE", "LOW", "TJX", "SBUX",
+        "BKNG", "ROST", "CMG", "BABA",
+        "UBER", "ABNB",  # OOS
+    ],
+    "Communication_Services": [
+        "DIS", "NFLX", "CMCSA", "T", "VZ",
+        "SPOT",  # OOS
+    ],
+    "Health_Care": [
+        "UNH", "JNJ", "LLY", "PFE", "ABT", "MRK", "TMO", "AMGN",
+        "ISRG", "GILD", "DHR",
+    ],
+    "Financials": [
+        "JPM", "V", "MA", "BAC", "GS", "MS", "BLK", "AXP",
+        "SPGI", "C", "PYPL", "ICE", "SCHW",
+        "COIN",  # OOS
+    ],
+    "Consumer_Staples": [
+        "PG", "KO", "PEP", "COST", "WMT", "PM", "CL", "MDLZ",
+    ],
+    "Industrials": [
+        "CAT", "GE", "HON", "UNP", "RTX", "LMT", "BA", "DE",
+        "WM", "FDX", "ETN",
+    ],
+    "Energy": ["XOM", "CVX", "COP", "SLB", "EOG", "OXY"],
+    "Utilities": ["NEE", "DUK", "SO", "AEP"],
+    "Real_Estate": ["PLD", "AMT", "CCI", "EQIX"],
+    "Materials": ["LIN", "APD", "SHW", "FCX", "NEM"],
+}
+TICKER_SECTORS = {}
+for _sector, _tickers in _SECTOR_TICKERS.items():
+    for _t in _tickers:
+        TICKER_SECTORS[_t] = _sector
+
 # --- Data ---
 DATA_START = "2019-01-01"
-DATA_END = "2025-03-01"
+DATA_END = "2026-03-01"
 LOOKBACK_DAYS = 60  # Trading days of history per sample
 CUTOFF_DOWS = [0, 1, 2, 3]  # Mon, Tue, Wed, Thu — generate a sample for each cutoff day
 
@@ -34,9 +109,9 @@ CAL_FRAC = 0.20  # calibration
 TEST_FRAC = 0.20
 
 # --- AutoGluon ---
-AG_PRESETS = "best_quality"
+AG_PRESETS = "good_quality"
 AG_EVAL_METRIC = "mean_absolute_error"
-AG_TIME_LIMIT = 3600  # seconds
+AG_TIME_LIMIT = 10800  # 3 hours — needed for ~130k samples
 
 # --- Conformal prediction ---
 CONFORMAL_COVERAGE = 0.90  # target coverage

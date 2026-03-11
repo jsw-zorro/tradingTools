@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
 
-from config import ARTIFACTS_DIR, AG_MODEL_DIR, OOS_TICKERS
+from config import ARTIFACTS_DIR, AG_MODEL_DIR, AG_TIME_LIMIT, OOS_TICKERS
 from conformal import fit_conformal, predict_range, save_conformal
 from data import build_samples, fetch_all_data, walk_forward_split
 from evaluate import compute_metrics, plot_predictions, print_metrics
@@ -185,7 +185,7 @@ def main() -> None:
     predictor.fit(
         train_data=train_df,
         presets="good_quality",
-        time_limit=3600,
+        time_limit=AG_TIME_LIMIT,
         num_cpus=48,
     )
 
