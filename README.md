@@ -206,84 +206,138 @@ class MyStrategy(BaseStrategy):
     def get_default_params(self): ...
 ```
 
-## Friday Close Range Predictor (`models/`)
+## Friday Close Predictor — Put-Selling Tool (`models/`)
 
-Standalone ML pipeline that predicts a $10 price range for where a stock will close on Friday. Used for selling puts: sell at a strike below the predicted lower bound. Uses conformal prediction to produce a calibrated lower bound with <5% violation rate.
+ML pipeline that predicts Friday close prices and generates a put-selling risk ladder with live option premiums and expected value calculations. Trained on 100 S&P 500 stocks across all 11 GICS sectors. Uses conformal prediction to produce calibrated bounds at multiple risk levels.
 
 ### How It Works
 
-1. **Features:** ~33 features from 30-day OHLCV windows — momentum (MACD), volatility (Garman-Klass, ATR), returns, VIX/SPY context, calendar signals, ticker identity
-2. **Model:** AutoGluon-Tabular ensemble (NeuralNet, CatBoost, LightGBM, XGBoost) stacked in 2 levels with 8-fold bagging
-3. **Target:** Friday return (friday_close / current_price - 1), not absolute price — so patterns transfer across stocks
-4. **Calibration:** Split conformal prediction in return-space produces a lower bound. Range = [lower_bound, lower_bound + $10]
-5. **Data cutoff:** Uses Mon/Tue/Wed/Thu data to predict that week's Friday close (4 samples per Friday per stock)
+1. **Features:** 40 features from 60-day OHLCV windows — momentum (MACD, RSI), volatility (Garman-Klass, ATR, Bollinger), returns (1d–50d), VIX/SPY context, calendar signals, GICS sector encoding
+2. **Model:** AutoGluon-Tabular ensemble (LightGBMXT, LightGBM, XGBoost, CatBoost, NeuralNetTorch) with 8-fold bagging
+3. **Target:** Friday return (friday_close / current_price - 1), not absolute price — patterns transfer across stocks of any price level
+4. **Calibration:** Split conformal prediction in return-space with volatility scaling. Produces lower bounds at any risk level (5%, 10%, 15%, 20%)
+5. **Put ladder:** For each risk level, rounds to a standard option strike, fetches live bid/ask from yfinance, and computes expected value per contract
+6. **Data cutoff:** Uses Mon/Tue/Wed/Thu data to predict that week's Friday close (4 samples per Friday per stock)
 
-### Results (Run 6, test period ~2024-2025)
+### Results (Run 8, 100 stocks, test period ~2024-2026)
 
 | Metric | Value |
 |--------|-------|
-| Point prediction MAE | $5.86 |
-| Point prediction RMSE | $10.04 |
-| Return MAE | ~2.8% |
-| Lower bound violation rate | 2.9% (target: ≤5%) |
-| Training stocks | 15 (GOOGL, TSLA, NVDA, AAPL, BABA, META, AMZN, MSFT, AMD, NFLX, COST, JPM, V, DIS, PYPL) |
-| Out-of-sample (UBER) | $1.51 MAE, 88.6% coverage |
+| Return MAE | 2.43% |
+| Dollar MAE | $6.84 |
+| Lower bound violation rate | 3.6% (target: ≤5%) |
+| Training stocks | 100 (across 11 GICS sectors) |
+| Training samples | 139,700 |
+| Out-of-sample (5 unseen tickers) | 3.83% return MAE |
+| Compact model size | 98 MB |
 
-Best per-stock: DIS $2.15, PYPL $1.90, NFLX $1.99. Worst: META $15.03, COST $13.73 (high-priced stocks).
+Low-volatility stocks: DUK 1.38%, SO 1.30%, JNJ 1.37%. High-volatility stocks: TSLA 4.94%, MU 5.17%, INTC 5.03%.
 
-### Inference
+### Quick Start — Predict a Put to Sell
 
 ```bash
 # Install deps (works on macOS M1)
 pip install "autogluon.tabular[all]" yfinance pandas numpy scikit-learn matplotlib
 
-# Predict this Friday's range
+# Show put-selling risk ladder with live premiums
 cd models/
-python predict.py --ticker AAPL
+python predict.py -t META
+
+# Without live option prices (offline mode)
+python predict.py -t META --no-premiums
+
+# Legacy $10 range output
+python predict.py -t AAPL --range
 ```
 
-Output:
+Example output:
 ```
-============================================================
-  AAPL Friday 2026-03-13 Prediction
-============================================================
-  Predicted range:  $220.15 - $230.15
-  Lower bound:      $220.15
-  Point prediction: $225.80
-  Safe put strike:  $220 or below
-============================================================
+==============================================================================
+  META Put-Selling Analysis for Friday 2026-03-14
+==============================================================================
+  Current price:    $658.00
+  Predicted close:  $661.29 (+0.50%)
+  Data through:     2026-03-10 (Tuesday)
+
+  RISK LADDER
+  --------------------------------------------------------------------------
+  Risk Level              Strike     Bid   P(ITM)     E[Loss]         EV
+  --------------------------------------------------------------------------
+  Conservative (5%)         $630   $0.45     5.0%        $89       -$44
+  Moderate (10%)            $645   $1.85    10.0%       $154        $31
+  Aggressive (15%)          $650   $2.90    15.0%       $218        $72 <<<
+  Very Aggressive (20%)     $655   $4.10    20.0%       $277       $133
+  --------------------------------------------------------------------------
+
+  >>> RECOMMENDED: Sell META $650 put @ $2.90 ($290/contract), EV=$72
+==============================================================================
 ```
+
+The tool recommends the strike with the highest positive expected value (EV = premium collected − expected loss from assignment).
 
 ### Training
 
-Training requires Docker (AutoGluon has heavy native deps). Uses 48 CPUs, takes ~30 minutes.
+Training requires Docker (AutoGluon has heavy native deps). Uses 48 CPUs, takes ~2.5 hours with 100 stocks.
 
 ```bash
 # Build Docker image (one-time)
 docker build -t friday-pred models/
 
-# Train
-docker run --rm -v $(pwd)/models:/app -u "$(id -u):$(id -g)" friday-pred python train.py
+# Train (volume-mount the models/ directory)
+docker run --rm -v $(pwd)/models:/app/models friday-pred python models/train.py
+
+# Run inference inside Docker
+docker run --rm -v $(pwd)/models:/app/models friday-pred python models/predict.py -t AAPL
 ```
 
-Artifacts saved to `models/artifacts/` (gitignored):
-- `ag_model/` — AutoGluon ensemble (~632 MB)
-- `conformal.json` — calibration residuals + quantile
-- `plots/` — per-stock prediction charts
+Artifacts saved to `models/artifacts/`:
+- `ag_model/` — Full AutoGluon ensemble (~1.2 GB, gitignored)
+- `ag_model_compact/` — Top 5 L1 models (98 MB, pushed to GitHub)
+- `conformal.json` — Calibration residuals (27,940 samples)
+- `plots/` — Per-stock prediction charts (gitignored)
+
+### Trained Tickers (100)
+
+**Technology (21):** AAPL, MSFT, NVDA, GOOGL, META, AVGO, AMD, ADBE, CRM, INTC, CSCO, ORCL, TXN, QCOM, AMAT, MU, LRCX, KLAC, NOW, PANW, CDNS
+
+**Consumer Discretionary (12):** AMZN, TSLA, HD, MCD, NKE, LOW, TJX, SBUX, BKNG, ROST, CMG, BABA
+
+**Financials (13):** JPM, V, MA, BAC, GS, MS, BLK, AXP, SPGI, C, PYPL, ICE, SCHW
+
+**Health Care (11):** UNH, JNJ, LLY, PFE, ABT, MRK, TMO, AMGN, ISRG, GILD, DHR
+
+**Industrials (11):** CAT, GE, HON, UNP, RTX, LMT, BA, DE, WM, FDX, ETN
+
+**Consumer Staples (8):** PG, KO, PEP, COST, WMT, PM, CL, MDLZ
+
+**Energy (6):** XOM, CVX, COP, SLB, EOG, OXY
+
+**Communication Services (5):** DIS, NFLX, CMCSA, T, VZ
+
+**Materials (5):** LIN, APD, SHW, FCX, NEM
+
+**Utilities (4):** NEE, DUK, SO, AEP
+
+**Real Estate (4):** PLD, AMT, CCI, EQIX
+
+The model can also predict untrained tickers (with reduced accuracy) — it uses price-normalized features and sector encoding, not ticker-specific patterns.
 
 ### Project Structure
 
 ```
 models/
+├── predict.py        # Inference: ticker → put-selling risk ladder
 ├── train.py          # End-to-end training pipeline
-├── predict.py        # Inference: ticker → $10 range for Friday close
 ├── data.py           # yfinance fetch + sample construction
-├── features.py       # ~33 features from 30-day OHLCV windows
-├── conformal.py      # Split conformal prediction (return-space)
+├── features.py       # 40 features from 60-day OHLCV windows
+├── conformal.py      # Split conformal prediction (multi-level bounds)
 ├── evaluate.py       # Coverage, sharpness, MAE metrics + plots
-├── config.py         # Hyperparams, ticker list, constants
+├── options.py        # Live option chain via yfinance
+├── config.py         # 100 tickers, sectors, hyperparams
 ├── Dockerfile        # Training environment (Python 3.11 + AutoGluon)
-└── artifacts/        # Saved model + calibration (gitignored)
+└── artifacts/        # Saved model + calibration
+    ├── ag_model_compact/  # 98 MB (on GitHub)
+    └── conformal.json     # Calibration data (on GitHub)
 ```
 
 ## Docker
